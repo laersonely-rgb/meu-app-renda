@@ -5,16 +5,29 @@ import math
 import re
 from datetime import date
 from fpdf import FPDF
-import base64
 
 # --- CONFIGURAÇÃO E ESTILO ---
 st.set_page_config(page_title="Método R.E.N.D.A. V.102.09 FULL", layout="wide")
 
-def gerar_pdf(conteudo_texto, nome_arquivo):
+def limpar_para_pdf(texto):
+    """Remove emojis e caracteres que travam o gerador de PDF padrão."""
+    # Substitui emojis por equivalentes em texto ou remove
+    substituicoes = {
+        "⚠️": "AVISO:", "🌱": "", "🌳": "BOSQUE:", "🔬": "PED:", 
+        "📊": "SCORE:", "🎯": "FINAL:", "✅": "[OK]", "🚨": "[VETO]",
+        "❄️": "FRIO:", "☀️": "CALOR:", "💎": "[TOP]"
+    }
+    for emoji, rep in substituicoes.items():
+        texto = texto.replace(emoji, rep)
+    # Remove qualquer outro caractere não-latin1
+    return texto.encode('latin-1', 'ignore').decode('latin-1')
+
+def gerar_pdf(conteudo_texto):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Courier", size=9) # Fonte fixa para tabelas ASCII
-    for linha in conteudo_texto.split('\n'):
+    pdf.set_font("Courier", size=9) # Fonte monoespaçada para tabelas
+    texto_limpo = limpar_para_pdf(conteudo_texto)
+    for linha in texto_limpo.split('\n'):
         pdf.cell(0, 5, txt=linha, ln=True)
     return pdf.output(dest='S')
 
@@ -69,7 +82,7 @@ with aba1:
     ticker = st.text_input("INSIRA O TICKER PARA ANÁLISE:", value="BBAS3").upper()
     
     with st.expander("📥 MÓDULO DE ENTRADA (PED)", expanded=True):
-        txt = st.text_area("Área de Colagem (Investidor10):")
+        txt = st.text_area("Área de Colagem (Investidor10):", key="ped_input")
         extraidos = garimpar_dados(txt) if txt else {}
         
         c1, c2, c3 = st.columns(3)
@@ -98,19 +111,18 @@ with aba1:
         score = (subtotal / 80) * 100
         
         juro_real = selic - ipca
-        alerta_macro = "❄️ INVERNO MACRO ATIVADO" if juro_real > 10 else "☀️ VERÃO MACRO"
+        alerta_macro = "INVERNO MACRO" if juro_real > 10 else "VERAO MACRO"
         
-        # MONTAGEM DO RELATÓRIO TEXTUAL (ASCII)
         relatorio = f"""
 +----------------------------------------------------------------------+
-| ⚠️  AVISO LEGAL — O Método R.E.N.D.A. V.102.09 FULL                  |
+| AVISO LEGAL -- O Metodo R.E.N.D.A. V.102.09 FULL                      |
 +----------------------------------------------------------------------+
-FASE 2: Scorecard Determinístico — {ticker}
+FASE 2: Scorecard Deterministico -- {ticker}
 
-CÁLCULO DA MARGEM DE SEGURANÇA (Pilar A)
-▸ Fórmula | VI = raiz(22,5 x LPA x VPA)
-▸ Resultado | R$ {vi:.2f}
-▸ Margem Graham | {margem:.2f}%
+CALCULO DA MARGEM DE SEGURANCA (Pilar A)
+- Formula  | VI = raiz(22,5 x LPA x VPA)
+- Resultado| R$ {vi:.2f}
+- Margem   | {margem:.2f}%
 
 +---------+---------------------+------------+----------------------------------+
 | Pilar   | Criterio (Trilha)   | Nota (0-20)| Diagnostico                      |
@@ -119,40 +131,34 @@ CÁLCULO DA MARGEM DE SEGURANÇA (Pilar A)
 | E       | Setor / Segmento    | {nota_e:<10} | {f_setor[:30]} |
 | N       | ROE/Vac/Inadim      | {nota_n:<10} | ROE {f_roe}%                         |
 | D       | Desvio Talmud       | -- (N/A)   | (Modulo A - Ticker Unico)        |
-| A (Ac.) | Graham              | {nota_a:<10} | Margem {margem:.2f}% — VI R${vi:.2f} |
+| A (Ac.) | Graham              | {nota_a:<10} | Margem {margem:.2f}% -- VI R${vi:.2f} |
 +---------+---------------------+------------+----------------------------------+
 | SCORE   | Base 100            | {score:.1f}/100    | ( {subtotal} / 80 ) x 100            |
 +---------+---------------------+------------+----------------------------------+
 
-FASE 3: Diagnóstico de Risco (Protocolo AVA)
-+-------+-------------------------+-----------------------------------------+
-| Trava | Criterio de Avaliacao   | Diagnostico e Status do Veto            |
-+-------+-------------------------+-----------------------------------------+
-| AVA-1 | Destruicao de Valor     | {'✅ APROVADO' if f_tend != 'Decrescente' else '🚨 VETO: LUCRO QUEDA'}           |
-| AVA-2 | Risco de Ruina (D/EBIT) | ✅ APROVADO                             |
-| AVA-2 | Risco de Liquidez       | {'✅ APROVADO' if f_liq > 1000000 else '🚨 VETO: BAIXA LIQ'}          |
-+-------+-------------------------+-----------------------------------------+
+FASE 3: Diagnostico de Risco (Protocolo AVA)
+- AVA-1 (Lucros): {'APROVADO' if f_tend != 'Decrescente' else 'VETO: QUEDA LUCRO'}
+- AVA-2 (Ruina): APROVADO
+- AVA-2 (Liquidez): {'APROVADO' if f_liq > 1000000 else 'VETO: BAIXA LIQ'}
 
-▸ Alerta Climático: {alerta_macro}. Juro Real: {juro_real:.2f}%
-🌳 SÍNTESE: Score {score:.1f}/100. Margem {margem:.2f}%.
+Alerta Climatico: {alerta_macro}. Juro Real: {juro_real:.2f}%
+SINTESE: Score {score:.1f}/100. Margem {margem:.2f}%.
 """
         st.code(relatorio, language="text")
         
-        # BOTÃO DE EXPORTAÇÃO
-        pdf_bytes = gerar_pdf(relatorio, f"analise_{ticker}.pdf")
+        pdf_bytes = gerar_pdf(relatorio)
         st.download_button(label="📥 Baixar Relatório em PDF", data=pdf_bytes, file_name=f"RENDA_{ticker}.pdf", mime="application/pdf")
 
 # =====================================================================
 # MÓDULO C: VISÃO DO BOSQUE
 # =====================================================================
 with aba2:
-    st.subheader("🌲 MÓDULO C — ANÁLISE DE CARTEIRA (VISÃO DO BOSQUE)")
+    st.subheader("🌲 MÓDULO C — ANÁLISE DE CARTEIRA")
     
-    with st.expander("📥 Importar Dados do Consolidador"):
-        txt_cart = st.text_area("Cole aqui sua lista de ativos (StatusInvest/Kinvo):")
+    with st.expander("📥 Importar da Corretora"):
+        txt_cart = st.text_area("Cole aqui sua lista de ativos:", key="carteira_input")
         ticks = re.findall(r'\b([A-Z]{4}[1-9]{1,2})\b', txt_cart.upper()) if txt_cart else []
     
-    # Criar DataFrame editável
     df_base = pd.DataFrame([{"Ticker": t, "Tipo": "Ações" if t[-1] in '34' else "FIIs", "Peso %": 10.0, "DY %": 8.0} for t in set(ticks)])
     if df_base.empty: df_base = pd.DataFrame([{"Ticker": "BBAS3", "Tipo": "Ações", "Peso %": 50.0, "DY %": 9.0}, {"Ticker": "HGLG11", "Tipo": "FIIs", "Peso %": 50.0, "DY %": 8.0}])
     
@@ -160,8 +166,7 @@ with aba2:
     aporte = st.number_input("Seu Aporte Mensal (R$):", value=1000.0)
 
     if st.button("⚖️ Executar Visão do Bosque"):
-        # Talmud 1/3
-        perc_acoes = edit_df[edit_df["Tipo"] == "Ações"]["Peso %"].sum()
+        perc_acoes = edit_df[edit_df["Tipo"] == "AÇÕES"]["Peso %"].sum() if "AÇÕES" in edit_df["Tipo"].values else edit_df[edit_df["Tipo"] == "Ações"]["Peso %"].sum()
         perc_fiis = edit_df[edit_df["Tipo"] == "FIIs"]["Peso %"].sum()
         perc_rf = 100 - perc_acoes - perc_fiis
         
@@ -169,20 +174,19 @@ with aba2:
         pat_v = (aporte * 12) / (dy_p / 100) if dy_p > 0 else 0
         
         rel_c = f"""
-+----------------------------------------------------------------------+
-| 🌳 MÓDULO C — RELATÓRIO DE CARTEIRA (VISÃO DO BOSQUE)                 |
-+----------------------------------------------------------------------+
-C.1 TERMÔMETRO DO TALMUD (EQUILÍBRIO)
-▸ Ações: {perc_acoes:.1f}% (Alvo 33.3%)
-▸ FIIs:  {perc_fiis:.1f}% (Alvo 33.3%)
-▸ R.Fixa: {perc_rf:.1f}% (Alvo 33.3%)
+🌳 MODULO C -- RELATORIO DE CARTEIRA (VISAO DO BOSQUE)
+------------------------------------------------------
+C.1 TERMOMETRO DO TALMUD (EQUILIBRIO)
+- Acoes: {perc_acoes:.1f}% (Alvo 33.3%)
+- FIIs:  {perc_fiis:.1f}% (Alvo 33.3%)
+- R.Fixa: {perc_rf:.1f}% (Alvo 33.3%)
 
 C.3 SIMULADOR DA GRANDE VIRADA
 Para igualar seu aporte mensal de R$ {aporte:,.2f}:
-▸ DY Médio Ponderado: {dy_p:.2f}%
-▸ PATRIMÔNIO ALVO: R$ {pat_v:,.2f}
+- DY Medio Ponderado: {dy_p:.2f}%
+- PATRIMONIO ALVO: R$ {pat_v:,.2f}
 """
         st.code(rel_c, language="text")
         
-        pdf_c = gerar_pdf(rel_c, "carteira.pdf")
+        pdf_c = gerar_pdf(rel_c)
         st.download_button(label="📥 Baixar Análise de Carteira", data=pdf_c, file_name="RENDA_Carteira.pdf", mime="application/pdf")
