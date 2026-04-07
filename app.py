@@ -119,4 +119,14 @@ def pilar_R(cagr):
 def pilar_E(setor, tipo):
     s = str(setor).lower()
     if "fii" in tipo.lower():
-        if any(x in s for x in ["logist","
+        fii_essenciais = ["logist", "saude", "agencia", "educac"]
+        fii_mistos = ["shopping", "laje", "corporat"]
+        fii_ciclicos = ["hotel", "residencial"]
+        
+        if any(x in s for x in fii_essenciais): return 20, "Tijolo Essencial"
+        if any(x in s for x in fii_mistos): return 15, "Tijolo Misto"
+        if any(x in s for x in fii_ciclicos): return 5, "Tijolo Ciclico"
+        return 10, "FII Papel Diversificado"
+    else:
+        acao_perenes = ["transmissao", "saneamento", "banco", "seguro", "saude"]
+        acao_
