@@ -38,6 +38,15 @@ def check_password():
         return False
     return True
 
+# --- NOVA FUNÇÃO COM CACHE (PREVINE RATE LIMIT) ---
+@st.cache_data(ttl=3600)  # Guarda os dados por 1 hora na memória
+def buscar_dados_ativo(ticker_name):
+    try:
+        stock = yf.Ticker(f"{ticker_name}.SA")
+        return stock.info
+    except Exception:
+        return None
+
 # --- LÓGICA DO MÉTODO R.E.N.D.A. ---
 def calcular_scorecard(dados, tipo):
     notas = {}
@@ -73,7 +82,7 @@ if check_password():
     st.title("🌱 Sistema de Ensino R.E.N.D.A.")
     st.write(f"Bem-vindo, Cultivador. Hoje é {date.today().strftime('%d/%m/%Y')}")
 
-    # ETAPA G5: ÂNCORA DE DADOS MACRO (Simulado para este exemplo)
+    # ETAPA G5: ÂNCORA DE DADOS MACRO
     with st.expander("🌐 ETAPA G5 — ÂNCORA DE DADOS MACRO", expanded=True):
         col1, col2, col3 = st.columns(3)
         selic = col1.number_input("Taxa Selic Meta (%)", value=10.50)
@@ -90,30 +99,36 @@ if check_password():
     
     if ticker:
         with st.spinner(f"Executando PED (Protocolo de Extração Determinístico) para {ticker}..."):
-            try:
-                # Simulação de coleta (Em produção, usa-se APIs pagas ou Scrapers)
-                stock = yf.Ticker(f"{ticker}.SA")
-                info = stock.info
-                preco = info.get('currentPrice', 0)
-                
-                # Interface de Auditoria (Gate de Auditoria)
-                st.subheader("🔬 MÓDULO 5 — GATE DE AUDITORIA")
-                st.write(f"**Preço Atual (Google Sync):** R$ {preco}")
-                
-                lpa = st.number_input("Confirme o LPA (Lucro por Ação):", value=1.0)
-                vpa = st.number_input("Confirme o VPA (Valor Patrimonial):", value=1.0)
-                tipo = st.selectbox("Tipo de Ativo:", ["Ação", "FII Tijolo", "FII Papel"])
+            
+            # Busca de dados inteligente (Usa memória se possível)
+            info = buscar_dados_ativo(ticker)
+            
+            # Interface de Auditoria (Gate de Auditoria)
+            st.subheader("🔬 MÓDULO 5 — GATE DE AUDITORIA")
+            
+            # Verificação se conseguiu extrair o preço
+            if info and 'currentPrice' in info and info['currentPrice'] is not None:
+                preco = info.get('currentPrice')
+                st.success(f"**Preço Atual (Sincronizado):** R$ {preco}")
+            else:
+                st.warning("⚠️ O Yahoo Finance limitou o acesso ou o Ticker é inválido. Insira os dados manualmente.")
+                preco = st.number_input("Insira o Preço Atual manualmente (R$):", value=10.00, min_value=0.01)
+            
+            # Dados fundamentais inseridos pelo aluno
+            lpa = st.number_input("Confirme o LPA (Lucro por Ação):", value=1.0)
+            vpa = st.number_input("Confirme o VPA (Valor Patrimonial):", value=10.0)
+            tipo = st.selectbox("Tipo de Ativo:", ["Ação", "FII Tijolo", "FII Papel"])
 
-                if st.button("Gerar Scorecard Final"):
+            if st.button("Gerar Scorecard Final"):
+                if lpa > 0 and vpa > 0:
                     dados = {'preco': preco, 'lpa': lpa, 'vpa': vpa, 'cagr': 12}
                     notas, diag_a = calcular_scorecard(dados, tipo)
                     
-                    # Tabela de Saída Formatada (Padrão Módulo 0.5)
+                    # Tabela de Saída Formatada
                     st.markdown("### 📊 MÓDULO 8 — SCORECARD DETERMINÍSTICO")
                     
-                    # Cálculo de Score Base 100
                     soma_notas = sum(notas.values())
-                    score_100 = (soma_notas / 40) * 100 # Exemplo com 2 pilares ativos
+                    score_100 = (soma_notas / 40) * 100 # Normalização Base 100
                     
                     df_score = pd.DataFrame({
                         "Pilar": ["R (Reinvestimento)", "A (Alocação)"],
@@ -131,9 +146,8 @@ if check_password():
                         st.warning("🌿 SOLO FERTIL: Acima do limiar mínimo.")
                     else:
                         st.error("🚨 TERRENO ÁRIDO: Fundamentos críticos.")
-
-            except Exception as e:
-                st.error(f"Erro ao coletar dados: {e}")
+                else:
+                    st.error("⚠️ Para o cálculo correto da Margem de Graham, o LPA e o VPA devem ser maiores que zero.")
 
 st.markdown("---")
 st.caption("R.E.N.D.A. PROTOCOL(TM) V.102.09 FULL © Laerson Endrigo Ely, 2026.")
