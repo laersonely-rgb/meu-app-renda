@@ -3,9 +3,20 @@ import pandas as pd
 import requests
 import math
 import re
-import yfinance as yf
-import google.generativeai as genai
 from datetime import date, datetime
+
+# ── BLINDAGEM DE IMPORTAÇÃO ────────────────────────────────────────────────
+try:
+    import yfinance as yf
+    YF_OK = True
+except ImportError:
+    YF_OK = False
+
+try:
+    import google.generativeai as genai
+    GENAI_OK = True
+except ImportError:
+    GENAI_OK = False
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. CONFIGURAÇÃO DE ELITE E ESTÉTICA
@@ -58,4 +69,21 @@ def fetch_macro():
     
     dias = max(0, (date.today() - date(2026, 1, 29)).days)
     copom_min = 276 + int(dias / 45)
-    ntnb = round((s - i)
+    ntnb = round((s - i) * 0.6 + i, 2)
+    return {"selic": s, "ipca": i, "ntnb": ntnb, "copom_min": copom_min, "now": now, "src": src}
+
+def fetch_cotacao(ticker):
+    if not YF_OK or not ticker: return 0.0
+    try:
+        t = ticker.upper().strip()
+        tk_obj = yf.Ticker(f"{t}.SA")
+        preco = tk_obj.fast_info['lastPrice']
+        if preco > 0: return round(preco, 2)
+        return round(yf.Ticker(t).fast_info['lastPrice'], 2)
+    except: return 0.0
+
+def parse_liquidez(raw):
+    if not raw: return 0.0
+    s = str(raw).strip().upper()
+    mul = 1
+    if "BILH" in s: mul = 1
