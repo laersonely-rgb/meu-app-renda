@@ -1,10 +1,8 @@
 import streamlit as st
 import pandas as pd
-import yfinance as yf
 import requests
 import math
 import re
-from bs4 import BeautifulSoup
 from datetime import date
 
 st.set_page_config(page_title="Método R.E.N.D.A. V.102.09", layout="wide")
@@ -70,16 +68,12 @@ def garimpar_carteira_texto(texto):
     carteira_dict = {}
     
     for i, linha in enumerate(linhas):
-        # 1. Procura um Ticker
         ticker_match = re.search(r'\b([A-Z]{4}[1-9]{1,2})\b', linha)
         if ticker_match:
             ticker = ticker_match.group(1)
             peso = None
             
-            # 2. Procura a porcentagem (%) na mesma linha
             peso_match = re.search(r'(\d+[.,]\d+|\d+)\s*%', linha)
-            
-            # 3. Se não achar, procura nas próximas 3 linhas (tabelas copiadas quebram linha)
             if not peso_match:
                 for j in range(1, 4):
                     if i + j < len(linhas):
@@ -92,24 +86,20 @@ def garimpar_carteira_texto(texto):
             else:
                 peso = 0.0
                 
-            # Salva no dicionário (atualiza se achar repetido com peso maior)
             if ticker not in carteira_dict or peso > carteira_dict[ticker]:
                 carteira_dict[ticker] = peso
 
-    # Converte para a lista da tabela
     lista_final = []
     for t, p in carteira_dict.items():
         tipo = "AÇÕES" if t.endswith(('3', '4', '5', '6')) else "FIIs"
         lista_final.append({"Ticker": t, "% Cart": p, "Tipo": tipo, "DY (%)": 0.0})
     
-    # Normalização de segurança (Se o consolidador não copiou os %, dividimos igual)
     if lista_final:
         soma_pesos = sum([item["% Cart"] for item in lista_final])
         if soma_pesos == 0:
             peso_igual = round(100.0 / len(lista_final), 2)
             for item in lista_final: item["% Cart"] = peso_igual
         elif abs(soma_pesos - 100) > 2.0:
-            # Re-calcula para fechar 100% perfeitamente
             for item in lista_final:
                 item["% Cart"] = round((item["% Cart"] / soma_pesos) * 100, 2)
                 
@@ -148,7 +138,7 @@ if check_password():
         cA, cB, cC = st.columns(3)
         with cA:
             preco = st.number_input("Preço Atual (R$)", value=float(dados_garimpados.get('preco') or 10.0))
-            lpa = st.number_input("Campo 1: LPA (R$)", value=float(dados_garimpados.get('lpa') or 1.0)) if tipo_ativo == "AÇÕES" else 0
+            lpa = st.number_input("Campo 1: LPA (R$)", value=float(dados_garimpados.get('lpa') or 1.0)) if tipo_ativo == "AÇÕES" else 0.0
             vpa = st.number_input("Campo 2: VPA (R$)", value=float(dados_garimpados.get('vpa') or 10.0))
             dy = st.number_input("Campo 3: DY 12m (%)", value=float(dados_garimpados.get('dy') or 6.0))
         with cB:
@@ -179,4 +169,79 @@ if check_password():
             else: notas['R'] = 5
             diag['R'] = f"CAGR: {cagr}%"
 
-            notas['E'] = 20 if "Essencial" in setor and "Semi" not in setor else 15 if "Moderado" in setor or "Misto" in setor else
+            # O BLOCO CORRIGIDO PARA O PILAR E
+            if "Essencial" in setor and "Semi" not in setor:
+                notas['E'] = 20
+            elif "Moderado" in setor or "Misto" in setor:
+                notas['E'] = 15
+            elif "CRI Diversificado" in setor or "Semi" in setor:
+                notas['E'] = 10
+            else:
+                notas['E'] = 5
+            diag['E'] = setor
+
+            if tipo_ativo == "AÇÕES":
+                notas['N'] = 20 if roe > 20 else 15 if roe >= 15 else 10 if roe >= 10 else 5
+                diag['N'] = f"ROE: {roe}%"
+                if lpa > 0 and vpa > 0:
+                    vi = math.sqrt(22.5 * lpa * vpa)
+                    margem = ((vi - preco) / vi) * 100
+                    notas['A'] = 20 if margem > 20 else 15 if margem > 0 else 10 if margem >= -20 else 5
+                    diag['A'] = f"Margem: {margem:.1f}%"
+                else:
+                    notas['A'] = 5; diag['A'] = "Graham Inválido"
+            else:
+                notas['N'] = 20; diag['N'] = "Análise FII"
+                pvp_recalc = preco / vpa if vpa > 0 else 999
+                notas['A'] = 20 if pvp_recalc <= 0.90 else 15 if pvp_recalc <= 1.0 else 10 if pvp_recalc <= 1.10 else 5
+                diag['A'] = f"P/VP: {pvp_recalc:.2f}"
+
+            st.markdown(f"### 📊 MÓDULO 8 — SCORECARD DETERMINÍSTICO ({ticker})")
+            df_score = pd.DataFrame({
+                "Pilar": ["R", "E", "N", "D", "A"],
+                "Nota (0-20)": [notas.get('R'), notas.get('E'), notas.get('N'), "N/A", notas.get('A')],
+                "Diagnóstico": [diag.get('R'), diag.get('E'), diag.get('N'), "Carteira", diag.get('A')]
+            })
+            st.table(df_score)
+            st.metric("🎯 SCORE FINAL (BASE 100)", f"{(sum(notas.values()) / 80) * 100:.1f} / 100")
+
+    # =====================================================================
+    # ABA 2: MÓDULO C (A MÁGICA DA IMPORTAÇÃO)
+    # =====================================================================
+    with aba_c:
+        st.subheader("🌳 MÓDULO C — ANÁLISE DE CARTEIRA")
+        
+        with st.expander("📥 IMPORTAR CARTEIRA VIA CONSOLIDADOR (StatusInvest, Kinvo, Trademap)", expanded=True):
+            st.info("Aperta CTRL+A na página da tua carteira no consolidador, CTRL+C e cola abaixo. O app extrai os Tickers e as Porcentagens.")
+            texto_carteira = st.text_area("Cola aqui a tua carteira:", height=120)
+            
+            ativos_importados = []
+            if texto_carteira:
+                ativos_importados = garimpar_carteira_texto(texto_carteira)
+                if ativos_importados:
+                    st.success(f"✅ Sucesso! Encontrados {len(ativos_importados)} ativos. A tabela abaixo foi preenchida com os seus pesos.")
+
+        if not ativos_importados:
+            ativos_importados = [{"Ticker": "BBAS3", "% Cart": 50.0, "Tipo": "AÇÕES", "DY (%)": 8.5}, {"Ticker": "HGLG11", "% Cart": 50.0, "Tipo": "FIIs", "DY (%)": 9.0}]
+
+        cart_df = st.data_editor(pd.DataFrame(ativos_importados), num_rows="dynamic", use_container_width=True)
+        aporte = st.number_input("Aporte Mensal (R$):", value=1000.0, step=100.0)
+        
+        if st.button("Executar Visão do Bosque"):
+            perc_acoes = cart_df[cart_df["Tipo"] == "AÇÕES"]["% Cart"].sum()
+            perc_fiis = cart_df[cart_df["Tipo"] == "FIIs"]["% Cart"].sum()
+            perc_rf = cart_df[cart_df["Tipo"] == "RENDA FIXA"]["% Cart"].sum()
+            
+            desvio_medio = (abs(perc_acoes - 33.33) + abs(perc_fiis - 33.33) + abs(perc_rf - 33.33)) / 3
+            dy_medio = (cart_df["DY (%)"] * (cart_df["% Cart"] / 100)).sum()
+            pat_virada = (aporte * 12) / (dy_medio / 100) if dy_medio > 0 else 0
+
+            st.markdown("---")
+            st.markdown("### ⚖️ C.1 Termômetro do Talmud (Pilar D)")
+            st.write(f"**Desvio Médio:** {desvio_medio:.1f} p.p. (Alvo R.E.N.D.A: 1/3 Ações, 1/3 FIIs, 1/3 Renda Fixa)")
+            if desvio_medio <= 5: st.success("🍏 POMAR EQUILIBRADO (Nota 20)")
+            elif desvio_medio <= 15: st.warning("🍋 DESEQUILÍBRIO MODERADO (Nota 10)")
+            else: st.error("🍎 MONOCULTURA - Risco de Concentração Elevado (Nota 5)")
+
+            st.markdown("### 🌱 C.3 Simulador da Grande Virada")
+            st.success(f"💰 Patrimônio necessário para superar o aporte de R${aporte}: **R$ {pat_virada:,.2f}**")
