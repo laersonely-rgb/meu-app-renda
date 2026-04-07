@@ -5,15 +5,18 @@ import math
 import re
 from datetime import date
 
-st.set_page_config(page_title="Método R.E.N.D.A. V.102.09", layout="wide")
+# --- CONFIGURAÇÃO DA PÁGINA ---
+st.set_page_config(page_title="Método R.E.N.D.A. V.102.09 FULL", layout="wide")
 
-# --- MÓDULO 0: AVISO LEGAL ---
 def exibir_aviso_legal():
     st.code("""
 +----------------------------------------------------------------------+
 |  ⚠️  AVISO LEGAL — O Método R.E.N.D.A. V.102.09 FULL                  |
 |  Exercício estritamente educacional e matemático.                    |
+|  Apêndice do livro Método R.E.N.D.A. de Investimentos                |
+|  (Laerson Endrigo Ely, 2026).                                        |
 |  NÃO constitui recomendação de investimento (Res. CVM 20/2021).      |
+|  A decisão de investimento é 100% exclusiva do usuário.              |
 +----------------------------------------------------------------------+
     """, language="text")
 
@@ -22,7 +25,7 @@ def check_password():
         st.session_state["authenticated"] = False
     if not st.session_state["authenticated"]:
         st.title("🔐 Acesso ao Mestre Digital")
-        pwd = st.text_input("Chave de Acesso:", type="password")
+        pwd = st.text_input("Chave de Acesso do Livro:", type="password")
         if st.button("Validar Semente"):
             if pwd == "RENDA2026":
                 st.session_state["authenticated"] = True
@@ -32,216 +35,160 @@ def check_password():
         return False
     return True
 
-# --- 🤖 MOTOR DE EXTRAÇÃO AUTOMÁTICA E INTELIGENTE ---
+# --- 🤖 MOTOR DE INTELIGÊNCIA MACRO E EXTRAÇÃO ---
 @st.cache_data(ttl=3600)
 def buscar_dados_macro():
     try:
-        selic_req = requests.get("https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1", timeout=5).json()
-        ipca_req = requests.get("https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1", timeout=5).json()
-        selic = float(selic_req[0]['valor'])
-        ipca = float(ipca_req[0]['valor'])
-        ntnb_backup = (selic - ipca) * 0.6 + ipca
-        return selic, ipca, ntnb_backup
+        selic = float(requests.get("https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1").json()[0]['valor'])
+        ipca = float(requests.get("https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1").json()[0]['valor'])
+        return selic, ipca
     except:
-        return 10.50, 4.50, 6.20
+        return 10.50, 4.50
 
-def garimpar_texto_fundamentos(texto):
-    """Procura padrões numéricos (LPA, VPA, DY) no texto bruto colado."""
+def garimpar_dados(texto):
     dados = {}
-    def extrair_numero(padrao, texto):
-        match = re.search(padrao, texto, re.IGNORECASE)
-        if match:
-            return float(match.group(1).replace('.', '').replace(',', '.'))
-        return None
-
-    dados['preco'] = extrair_numero(r'(?:VALOR ATUAL|Cotação|Preço)[\s\S]{0,20}?R\$?\s*([0-9.,]+)', texto)
-    dados['lpa'] = extrair_numero(r'LPA[\s\S]{0,20}?([0-9.,]+)', texto)
-    dados['vpa'] = extrair_numero(r'VPA[\s\S]{0,20}?([0-9.,]+)', texto)
-    dados['dy'] = extrair_numero(r'(?:Dividend Yield|DY)[\s\S]{0,20}?([0-9.,]+)\s*%', texto)
-    dados['roe'] = extrair_numero(r'ROE[\s\S]{0,20}?([0-9.,]+)\s*%', texto)
-    dados['pvp'] = extrair_numero(r'P/VP[\s\S]{0,20}?([0-9.,]+)', texto)
+    def extrair(padrao, txt):
+        m = re.search(padrao, txt, re.IGNORECASE)
+        return float(m.group(1).replace('.', '').replace(',', '.')) if m else None
+    
+    dados['preco'] = extrair(r'(?:VALOR ATUAL|Cotação|Preço)[\s\S]{0,30}?R\$?\s*([0-9.,]+)', texto)
+    dados['lpa'] = extrair(r'LPA[\s\S]{0,20}?([0-9.,]+)', texto)
+    dados['vpa'] = extrair(r'VPA[\s\S]{0,20}?([0-9.,]+)', texto)
+    dados['dy'] = extrair(r'(?:Dividend Yield|DY)[\s\S]{0,20}?([0-9.,]+)\s*%', texto)
+    dados['roe'] = extrair(r'ROE[\s\S]{0,20}?([0-9.,]+)\s*%', texto)
+    dados['cagr'] = extrair(r'(?:CAGR LUCROS|CAGR RECEITA)[\s\S]{0,20}?([0-9.,]+)\s*%', texto)
     return dados
 
-def garimpar_carteira_texto(texto):
-    """Lê o texto do consolidador, acha o Ticker e a Porcentagem na mesma linha ou nas próximas."""
-    linhas = texto.upper().split('\n')
-    carteira_dict = {}
-    
-    for i, linha in enumerate(linhas):
-        ticker_match = re.search(r'\b([A-Z]{4}[1-9]{1,2})\b', linha)
-        if ticker_match:
-            ticker = ticker_match.group(1)
-            peso = None
-            
-            peso_match = re.search(r'(\d+[.,]\d+|\d+)\s*%', linha)
-            if not peso_match:
-                for j in range(1, 4):
-                    if i + j < len(linhas):
-                        peso_match = re.search(r'(\d+[.,]\d+|\d+)\s*%', linhas[i+j])
-                        if peso_match:
-                            break
-            
-            if peso_match:
-                peso = float(peso_match.group(1).replace(',', '.'))
-            else:
-                peso = 0.0
-                
-            if ticker not in carteira_dict or peso > carteira_dict[ticker]:
-                carteira_dict[ticker] = peso
-
-    lista_final = []
-    for t, p in carteira_dict.items():
-        tipo = "AÇÕES" if t.endswith(('3', '4', '5', '6')) else "FIIs"
-        lista_final.append({"Ticker": t, "% Cart": p, "Tipo": tipo, "DY (%)": 0.0})
-    
-    if lista_final:
-        soma_pesos = sum([item["% Cart"] for item in lista_final])
-        if soma_pesos == 0:
-            peso_igual = round(100.0 / len(lista_final), 2)
-            for item in lista_final: item["% Cart"] = peso_igual
-        elif abs(soma_pesos - 100) > 2.0:
-            for item in lista_final:
-                item["% Cart"] = round((item["% Cart"] / soma_pesos) * 100, 2)
-                
-    return lista_final
-
-# --- EXECUÇÃO PRINCIPAL ---
+# --- EXECUÇÃO DO SISTEMA ---
 exibir_aviso_legal()
 
 if check_password():
     st.title("🌱 Sistema de Ensino R.E.N.D.A.")
-    
-    with st.expander("🌐 ETAPA G5 — ÂNCORA DE DADOS MACRO (Automático BCB)", expanded=True):
-        selic_auto, ipca_auto, ntnb_auto = buscar_dados_macro()
+    st.caption("Protocolo V.102.09 FULL — O Mestre Digital")
+
+    # 🌐 ETAPA G5 — ÂNCORA MACRO
+    with st.expander("🌐 ETAPA G5 — ÂNCORA DE DADOS MACRO", expanded=True):
+        s_auto, i_auto = buscar_dados_macro()
         c1, c2, c3 = st.columns(3)
-        selic = c1.number_input("Selic Meta (%)", value=float(selic_auto))
-        ipca = c2.number_input("IPCA 12m (%)", value=float(ipca_auto))
-        ntnb = c3.number_input("NTN-B Longa (IPCA + %)", value=float(ntnb_auto))
+        selic = c1.number_input("Taxa Selic Meta (%)", value=s_auto)
+        ipca = c2.number_input("IPCA 12m (%)", value=i_auto)
+        ntnb = c3.number_input("NTN-B Longa (IPCA + %)", value=6.20)
+        st.info(f"**Juro Real Bruto:** {selic - ipca:.2f}%")
 
-    aba_a, aba_c = st.tabs(["🌳 Módulo A: Análise Individual", "🌲 Módulo C: Visão do Bosque (Carteira)"])
+    tab_a, tab_c = st.tabs(["🌳 Módulo A: Ativo Único (PED/AVA)", "🌲 Módulo C: Visão do Bosque (Carteira)"])
 
     # =====================================================================
-    # ABA 1: MÓDULO A
+    # MÓDULO A: ANÁLISE DETERMINÍSTICA
     # =====================================================================
-    with aba_a:
+    with tab_a:
         st.subheader("🔬 PROTOCOLO DE EXTRAÇÃO DETERMINÍSTICO (PED)")
-        c_tick, c_tipo = st.columns([1, 2])
-        ticker = c_tick.text_input("Ticker do Ativo:").upper()
-        tipo_ativo = c_tipo.radio("Natureza do Ativo:", ["AÇÕES", "FII TIJOLO", "FII PAPEL"], horizontal=True)
+        
+        with st.expander("📥 GARIMPO AUTOMÁTICO (CTRL+A / CTRL+V)"):
+            texto_i10 = st.text_area("Cole aqui o texto da página do ativo no Investidor10/StatusInvest:")
+            extraidos = garimpar_dados(texto_i10) if texto_i10 else {}
+            if extraidos: st.success("✅ Dados garimpados com sucesso!")
 
-        with st.expander("📥 PREENCHIMENTO AUTOMÁTICO VIA TEXTO (Copiar/Colar)"):
-            st.info("Aperte CTRL+A na página do ativo no Investidor10, CTRL+C e cole abaixo.")
-            texto_colado = st.text_area("Cola aqui o texto da página do ativo:", height=100)
-            dados_garimpados = garimpar_texto_fundamentos(texto_colado) if texto_colado else {}
-            if dados_garimpados: st.success("✅ Campos preenchidos automaticamente!")
+        ticker = st.text_input("Ticker do Ativo:").upper()
+        tipo = st.radio("Natureza:", ["AÇÃO", "FII TIJOLO", "FII PAPEL"], horizontal=True)
 
-        cA, cB, cC = st.columns(3)
-        with cA:
-            preco = st.number_input("Preço Atual (R$)", value=float(dados_garimpados.get('preco') or 10.0))
-            lpa = st.number_input("Campo 1: LPA (R$)", value=float(dados_garimpados.get('lpa') or 1.0)) if tipo_ativo == "AÇÕES" else 0.0
-            vpa = st.number_input("Campo 2: VPA (R$)", value=float(dados_garimpados.get('vpa') or 10.0))
-            dy = st.number_input("Campo 3: DY 12m (%)", value=float(dados_garimpados.get('dy') or 6.0))
-        with cB:
-            cagr = st.number_input("Campo 7: CAGR Div. 3 anos (%)", value=5.0)
-            liquidez = st.number_input("Campo 6: Liquidez Diária (R$ Mil)", value=5000.0)
-            if tipo_ativo == "AÇÕES":
-                roe = st.number_input("Campo 4: ROE (%)", value=float(dados_garimpados.get('roe') or 15.0))
-                div_ebitda = st.number_input("Campo 5: Dívida Líq / EBITDA", value=1.5)
-            elif tipo_ativo == "FII TIJOLO":
-                vacancia = st.number_input("Campo 9A: Vacância (%)", value=4.0)
-                ltv = st.number_input("Campo 5: LTV (%)", value=15.0)
-            elif tipo_ativo == "FII PAPEL":
-                inadimplencia = st.number_input("Campo 9B: Inadimplência (%)", value=0.5)
-        with cC:
-            if tipo_ativo == "AÇÕES":
-                setor = st.selectbox("Pilar E - Setor:", ["Essencial Perene", "Essencial Moderado", "Semi-Essencial", "Cíclico"])
-                tendencia = st.selectbox("Campo 9C: Tendência Lucros:", ["Crescente", "Estável", "Decrescente 3 anos", "Prejuízo Recorrente"])
-            elif tipo_ativo == "FII TIJOLO":
-                setor = st.selectbox("Pilar E - Segmento:", ["Tijolo Essencial", "Tijolo Misto", "Tijolo Cíclico"])
-            elif tipo_ativo == "FII PAPEL":
-                setor = st.selectbox("Pilar E - Lastro:", ["CRI Setores Essenciais", "CRI Diversificado"])
+        st.markdown("#### Auditoria dos 9 Campos do PED")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            preco_at = col1.number_input("Preço Atual (R$)", value=extraidos.get('preco', 10.0))
+            f1 = col1.number_input("1. LPA (R$)" if tipo == "AÇÃO" else "1. Vacância (%)", value=extraidos.get('lpa', 1.0) if tipo == "AÇÃO" else 5.0)
+            f2 = col1.number_input("2. VPA (R$)", value=extraidos.get('vpa', 10.0))
+        with col2:
+            f3 = col2.number_input("3. DY 12m (%)", value=extraidos.get('dy', 6.0))
+            f4 = col2.number_input("4. ROE (%)" if tipo == "AÇÃO" else "4. Gestão (Nota 0-20)", value=extraidos.get('roe', 15.0) if tipo == "AÇÃO" else 18.0)
+            f5 = col2.number_input("5. Dívida/EBITDA" if tipo == "AÇÃO" else "5. LTV/Alavancagem (%)", value=1.5 if tipo == "AÇÃO" else 10.0)
+        with col3:
+            f6 = col3.number_input("6. Liquidez Diária (R$ Milhões)", value=5.0)
+            f7 = col3.number_input("7. CAGR Proventos 3a (%)", value=extraidos.get('cagr', 8.0))
+            f9 = col3.selectbox("9. Tendência/Setor", ["Essencial Perene", "Essencial Moderado", "Cíclico", "Ruim/Decrescente"])
 
-        if st.button("Executar Scorecard R.E.N.D.A."):
-            notas, diag = {}, {}
-            if cagr > 10: notas['R'] = 20
-            elif cagr > 5: notas['R'] = 15
-            elif cagr > 0: notas['R'] = 10
-            else: notas['R'] = 5
-            diag['R'] = f"CAGR: {cagr}%"
-
-            # O BLOCO CORRIGIDO PARA O PILAR E
-            if "Essencial" in setor and "Semi" not in setor:
-                notas['E'] = 20
-            elif "Moderado" in setor or "Misto" in setor:
-                notas['E'] = 15
-            elif "CRI Diversificado" in setor or "Semi" in setor:
-                notas['E'] = 10
+        if st.button("📊 Gerar Scorecard R.E.N.D.A."):
+            notas = {}
+            alertas = []
+            
+            # PILAR R (Reinvestimento)
+            notas['R'] = 20 if f7 > 10 else 15 if f7 > 5 else 10 if f7 > 0 else 5
+            
+            # PILAR E (Essenciais)
+            notas['E'] = 20 if "Perene" in f9 else 15 if "Moderado" in f9 else 5
+            
+            # PILAR N (Negócios) + AVA
+            if tipo == "AÇÃO":
+                notas['N'] = 20 if f4 > 20 else 15 if f4 > 12 else 5
+                if f5 > 4.0: alertas.append("🚨 AVA-2: Risco de Ruína (Dívida alta)")
+                if "Ruim" in f9: alertas.append("🚨 AVA-1: Destruição de Valor")
             else:
-                notas['E'] = 5
-            diag['E'] = setor
-
-            if tipo_ativo == "AÇÕES":
-                notas['N'] = 20 if roe > 20 else 15 if roe >= 15 else 10 if roe >= 10 else 5
-                diag['N'] = f"ROE: {roe}%"
-                if lpa > 0 and vpa > 0:
-                    vi = math.sqrt(22.5 * lpa * vpa)
-                    margem = ((vi - preco) / vi) * 100
-                    notas['A'] = 20 if margem > 20 else 15 if margem > 0 else 10 if margem >= -20 else 5
-                    diag['A'] = f"Margem: {margem:.1f}%"
-                else:
-                    notas['A'] = 5; diag['A'] = "Graham Inválido"
+                notas['N'] = 20 if f1 < 5 else 10 # Para FII, f1 é vacância
+            
+            # PILAR A (Alocação)
+            if tipo == "AÇÃO":
+                margem = (math.sqrt(22.5 * f1 * f2) - preco_at) / math.sqrt(22.5 * f1 * f2) * 100 if f1 > 0 else -100
+                notas['A'] = 20 if margem > 20 else 15 if margem > 0 else 5
+                diag_a = f"Margem Graham: {margem:.1f}%"
             else:
-                notas['N'] = 20; diag['N'] = "Análise FII"
-                pvp_recalc = preco / vpa if vpa > 0 else 999
-                notas['A'] = 20 if pvp_recalc <= 0.90 else 15 if pvp_recalc <= 1.0 else 10 if pvp_recalc <= 1.10 else 5
-                diag['A'] = f"P/VP: {pvp_recalc:.2f}"
+                pvp = preco_at / f2
+                notas['A'] = 20 if pvp < 0.95 else 15 if pvp <= 1.05 else 5
+                diag_a = f"P/VP: {pvp:.2f}"
 
-            st.markdown(f"### 📊 MÓDULO 8 — SCORECARD DETERMINÍSTICO ({ticker})")
-            df_score = pd.DataFrame({
-                "Pilar": ["R", "E", "N", "D", "A"],
-                "Nota (0-20)": [notas.get('R'), notas.get('E'), notas.get('N'), "N/A", notas.get('A')],
-                "Diagnóstico": [diag.get('R'), diag.get('E'), diag.get('N'), "Carteira", diag.get('A')]
+            # EXIBIÇÃO DO SCORECARD
+            st.markdown(f"### Scorecard Deterministico: {ticker}")
+            df_renda = pd.DataFrame({
+                "Pilar": ["R (Reinvestimento)", "E (Essenciais)", "N (Negócios Sólidos)", "D (Diversificação)", "A (Alocação)"],
+                "Nota (0-20)": [notas['R'], notas['E'], notas['N'], "---", notas['A']],
+                "Diagnóstico": [f"CAGR {f7}%", f9, "Fundamentos", "Ver Módulo C", diag_a]
             })
-            st.table(df_score)
-            st.metric("🎯 SCORE FINAL (BASE 100)", f"{(sum(notas.values()) / 80) * 100:.1f} / 100")
+            st.table(df_renda)
+            
+            score = (sum(notas.values()) / 80) * 100
+            st.metric("SCORE FINAL (BASE 100)", f"{score:.1f} pts")
+            
+            # ESCALA DE VITALIDADE
+            st.markdown("#### 🧬 Escala de Vitalidade do Solo")
+            if score >= 85: st.success("💎 SAFRA RESILIENTE: Solo fértil, alta robustez.")
+            elif score >= 60: st.warning("🌿 SOLO MODERADO: Exige monitoramento AVA-3.")
+            else: st.error("🚨 TERRENO ÁRIDO: Risco de ruína detectado.")
+
+            for a in alertas: st.error(a)
 
     # =====================================================================
-    # ABA 2: MÓDULO C (A MÁGICA DA IMPORTAÇÃO)
+    # MÓDULO C: VISÃO DO BOSQUE
     # =====================================================================
-    with aba_c:
-        st.subheader("🌳 MÓDULO C — ANÁLISE DE CARTEIRA")
+    with tab_c:
+        st.subheader("🌲 MÓDULO C — VISÃO DO BOSQUE")
+        st.write("Importe sua carteira para validar a **Regra do Talmud (1/3)**.")
         
-        with st.expander("📥 IMPORTAR CARTEIRA VIA CONSOLIDADOR (StatusInvest, Kinvo, Trademap)", expanded=True):
-            st.info("Aperta CTRL+A na página da tua carteira no consolidador, CTRL+C e cola abaixo. O app extrai os Tickers e as Porcentagens.")
-            texto_carteira = st.text_area("Cola aqui a tua carteira:", height=120)
-            
-            ativos_importados = []
-            if texto_carteira:
-                ativos_importados = garimpar_carteira_texto(texto_carteira)
-                if ativos_importados:
-                    st.success(f"✅ Sucesso! Encontrados {len(ativos_importados)} ativos. A tabela abaixo foi preenchida com os seus pesos.")
+        with st.expander("📥 Importar de Consolidador"):
+            txt_cart = st.text_area("Cole aqui sua lista de ativos/corretora:")
+            # Garimpo simplificado de tickers
+            ticks_f = re.findall(r'\b([A-Z]{4}[1-9]{1,2})\b', txt_cart.upper()) if txt_cart else []
+            if ticks_f: st.success(f"Encontrados: {', '.join(set(ticks_f))}")
 
-        if not ativos_importados:
-            ativos_importados = [{"Ticker": "BBAS3", "% Cart": 50.0, "Tipo": "AÇÕES", "DY (%)": 8.5}, {"Ticker": "HGLG11", "% Cart": 50.0, "Tipo": "FIIs", "DY (%)": 9.0}]
-
-        cart_df = st.data_editor(pd.DataFrame(ativos_importados), num_rows="dynamic", use_container_width=True)
-        aporte = st.number_input("Aporte Mensal (R$):", value=1000.0, step=100.0)
+        # Tabela de Carteira
+        cart_data = pd.DataFrame([{"Ticker": t, "Tipo": "Ações" if t[-1] in '34' else "FIIs", "Peso %": 10.0, "DY %": 8.0} for t in set(ticks_f)])
+        if cart_data.empty: cart_data = pd.DataFrame([{"Ticker": "EXEMPLO", "Tipo": "Ações", "Peso %": 100.0, "DY %": 8.0}])
         
-        if st.button("Executar Visão do Bosque"):
-            perc_acoes = cart_df[cart_df["Tipo"] == "AÇÕES"]["% Cart"].sum()
-            perc_fiis = cart_df[cart_df["Tipo"] == "FIIs"]["% Cart"].sum()
-            perc_rf = cart_df[cart_df["Tipo"] == "RENDA FIXA"]["% Cart"].sum()
+        edit_df = st.data_editor(cart_data, num_rows="dynamic", use_container_width=True)
+        aporte = st.number_input("Aporte Mensal (R$)", value=1000.0)
+
+        if st.button("⚖️ Executar Equilíbrio do Talmud"):
+            acoes = edit_df[edit_df["Tipo"]=="Ações"]["Peso %"].sum()
+            fiis = edit_df[edit_df["Tipo"]=="FIIs"]["Peso %"].sum()
+            rf = 100 - acoes - fiis
             
-            desvio_medio = (abs(perc_acoes - 33.33) + abs(perc_fiis - 33.33) + abs(perc_rf - 33.33)) / 3
-            dy_medio = (cart_df["DY (%)"] * (cart_df["% Cart"] / 100)).sum()
-            pat_virada = (aporte * 12) / (dy_medio / 100) if dy_medio > 0 else 0
-
-            st.markdown("---")
-            st.markdown("### ⚖️ C.1 Termômetro do Talmud (Pilar D)")
-            st.write(f"**Desvio Médio:** {desvio_medio:.1f} p.p. (Alvo R.E.N.D.A: 1/3 Ações, 1/3 FIIs, 1/3 Renda Fixa)")
-            if desvio_medio <= 5: st.success("🍏 POMAR EQUILIBRADO (Nota 20)")
-            elif desvio_medio <= 15: st.warning("🍋 DESEQUILÍBRIO MODERADO (Nota 10)")
-            else: st.error("🍎 MONOCULTURA - Risco de Concentração Elevado (Nota 5)")
-
-            st.markdown("### 🌱 C.3 Simulador da Grande Virada")
-            st.success(f"💰 Patrimônio necessário para superar o aporte de R${aporte}: **R$ {pat_virada:,.2f}**")
+            st.markdown("#### C.1 Termômetro do Talmud")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Ações (Alvo 33%)", f"{acoes}%")
+            c2.metric("FIIs (Alvo 33%)", f"{fiis}%")
+            c3.metric("Renda Fixa (Alvo 33%)", f"{rf}%")
+            
+            # SIMULADOR GRANDE VIRADA
+            dy_m = (edit_df["DY %"] * (edit_df["Peso %"]/100)).sum()
+            pat_v = (aporte * 12) / (dy_m / 100) if dy_m > 0 else 0
+            
+            st.markdown("#### 🌱 C.3 Simulador da Grande Virada")
+            st.write(f"Para que seus dividendos igualem seu aporte de **R$ {aporte:.2f}**, seu alvo é:")
+            st.success(f"💰 PATRIMÔNIO ALVO: R$ {pat_v:,.2f}")
