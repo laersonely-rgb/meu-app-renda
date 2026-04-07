@@ -3,9 +3,20 @@ import pandas as pd
 import requests
 import math
 import re
-import yfinance as yf
-import google.generativeai as genai
 from datetime import date, datetime
+
+# ── BLINDAGEM DE IMPORTAÇÃO (Evita a "Tela Branca" se a nuvem falhar) ────
+try:
+    import yfinance as yf
+    YF_OK = True
+except ImportError:
+    YF_OK = False
+
+try:
+    import google.generativeai as genai
+    GENAI_OK = True
+except ImportError:
+    GENAI_OK = False
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. CONFIGURAÇÃO DE ELITE E ESTÉTICA
@@ -62,7 +73,7 @@ def fetch_macro():
     return {"selic": s, "ipca": i, "ntnb": ntnb, "copom_min": copom_min, "now": now, "src": src}
 
 def fetch_cotacao(ticker):
-    if not ticker: return 0.0
+    if not YF_OK or not ticker: return 0.0
     try:
         t = ticker.upper().strip()
         tk_obj = yf.Ticker(f"{t}.SA")
@@ -122,11 +133,33 @@ def pilar_E(setor, tipo):
         fii_essenciais = ["logist", "saude", "agencia", "educac"]
         fii_mistos = ["shopping", "laje", "corporat"]
         fii_ciclicos = ["hotel", "residencial"]
-        
         if any(x in s for x in fii_essenciais): return 20, "Tijolo Essencial"
         if any(x in s for x in fii_mistos): return 15, "Tijolo Misto"
         if any(x in s for x in fii_ciclicos): return 5, "Tijolo Ciclico"
         return 10, "FII Papel Diversificado"
     else:
         acao_perenes = ["transmissao", "saneamento", "banco", "seguro", "saude"]
-        acao_
+        acao_moderadas = ["eletric", "energia", "distribui", "varejo", "telecom"]
+        acao_ciclicas = ["mineracao", "siderurg", "petroleo", "construcao"]
+        if any(x in s for x in acao_perenes): return 20, "Essencial Perene"
+        if any(x in s for x in acao_moderadas): return 15, "Essencial Moderado"
+        if any(x in s for x in acao_ciclicas): return 5, "Ciclico"
+        return 10, "Semi-Essencial"
+
+def pilar_N(roe, vac, iad, tipo, liq, de, cagr, tend):
+    ctx = ""
+    if "ACOES" in tipo:
+        if liq < 500000 and de < 1.5 and cagr > 5 and tend != "Decrescente":
+            ctx = " (Small Cap)"
+        if roe > 20: return 20, f"ROE {roe:.1f}% Fosso Econ. OK{ctx}"
+        if roe >= 15: return 15, f"ROE {roe:.1f}% Gestao M. Eficaz{ctx}"
+        if roe >= 10: return 10, f"ROE {roe:.1f}% Gestao Eficaz{ctx}"
+        return 5, f"ROE {roe:.1f}% Gestao Abaixo{ctx}"
+    elif "TIJOLO" in tipo:
+        if vac < 5: return 20, f"Vacancia {vac:.1f}% Premium OK"
+        if vac <= 10: return 15, f"Vacancia {vac:.1f}% Boa Ocupacao"
+        if vac <= 15: return 10, f"Vacancia {vac:.1f}% Moderada"
+        return 5, f"Vacancia {vac:.1f}% Risco Elevado"
+    else:
+        if iad < 1: return 20, f"Inadimp {iad:.1f}%
+        
