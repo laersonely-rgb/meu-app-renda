@@ -273,3 +273,4 @@ try:
 | D       | Desvio Talmud       |   -- (N/A) | (Modulo C - carteira)            |
 | A       | Valuation           | {a_n:>10} | {a_d:<32} |
 +---------+
+
